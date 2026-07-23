@@ -1,0 +1,14 @@
+{
+  "title": "QUIK Lua API — Документация терминала",
+  "summary": "Справочник по Lua API терминала QUIK (ARQA Technologies). Содержит описание функций, форматы вызова, параметры и примеры кода для разработки торговых скриптов.",
+  "created": "2026-05-15",
+  "last_updated": "2026-05-15",
+  "source": "Руководство пользователя QUIK © ARQA Technologies — www.arqatech.com/ru/products/quik/",
+  "tags": ["QUIK", "Lua", "trading", "API", "скрипты", "алготрейдинг"],
+  "sections_available": [
+    "01_service_functions"
+  ],
+  "references": [
+    "https://www.arqatech.com/ru/products/quik/"
+  ]
+}
