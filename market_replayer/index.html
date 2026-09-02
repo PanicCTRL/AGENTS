@@ -1,0 +1,306 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Market Replayer & Strategy Tester (TradingView UI)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: #131722; color: #d1d4dc; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+        header {
+            height: 48px; background-color: #1e222d; border-bottom: 1px solid #2a2e39;
+            display: flex; align-items: center; justify-content: space-between; padding: 0 16px; gap: 12px; user-select: none;
+        }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .logo { font-weight: bold; color: #2962ff; font-size: 16px; display: flex; align-items: center; gap: 6px; }
+        .ticker-badge { background: #2a2e39; color: #f0b90b; font-weight: bold; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
+        .tf-group { display: flex; gap: 4px; background: #131722; padding: 3px; border-radius: 4px; border: 1px solid #2a2e39; }
+        .tf-btn {
+            background: transparent; border: none; color: #787b86; padding: 4px 8px; border-radius: 3px;
+            font-size: 12px; cursor: pointer; font-weight: 600; transition: 0.15s;
+        }
+        .tf-btn:hover { color: #d1d4dc; }
+        .tf-btn.active { background: #2962ff; color: #fff; }
+
+        .chart-type-btn {
+            background: #2a2e39; border: none; color: #d1d4dc; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+        }
+        .chart-type-btn:hover { background: #363a45; }
+
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .btn-file {
+            background: #2a2e39; color: #d1d4dc; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;
+            border: 1px solid #363a45; display: flex; align-items: center; gap: 6px;
+        }
+        .btn-file:hover { background: #363a45; border-color: #2962ff; }
+        .file-input { display: none; }
+        .btn-export {
+            background: #1e53e5; color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 12px; border: none; cursor: pointer; font-weight: 600;
+        }
+        .btn-export:hover { background: #1742be; }
+
+        .main-container { flex: 1; display: flex; position: relative; overflow: hidden; }
+        #chart-container { flex: 1; height: 100%; position: relative; }
+
+        .ohlc-legend {
+            position: absolute; top: 10px; left: 14px; z-index: 10; font-size: 12px; font-family: monospace;
+            background: rgba(19, 23, 34, 0.75); padding: 6px 10px; border-radius: 4px; pointer-events: none; display: flex; gap: 12px;
+        }
+        .ohlc-val { color: #fff; font-weight: bold; }
+
+        aside {
+            width: 340px; background: #1e222d; border-left: 1px solid #2a2e39; display: flex; flex-direction: column; user-select: none;
+        }
+        .panel-section { padding: 12px 14px; border-bottom: 1px solid #2a2e39; }
+        .panel-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #787b86; margin-bottom: 8px; letter-spacing: 0.5px; }
+
+        .price-badge { font-size: 22px; font-weight: bold; color: #fff; margin-bottom: 8px; font-family: monospace; }
+        .trade-buttons { display: flex; gap: 8px; margin-bottom: 8px; }
+        .btn-trade {
+            flex: 1; padding: 8px; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; cursor: pointer; color: #fff; transition: 0.15s;
+        }
+        .btn-buy { background: #26a69a; }
+        .btn-buy:hover { background: #2bbbad; }
+        .btn-sell { background: #ef5350; }
+        .btn-sell:hover { background: #e53935; }
+        .btn-flat {
+            background: #2a2e39; color: #d1d4dc; padding: 6px; width: 100%; border: 1px solid #363a45; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600;
+        }
+        .btn-flat:hover { background: #363a45; }
+
+        .pos-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; margin-top: 8px; }
+        .pos-card { background: #131722; padding: 6px 8px; border-radius: 4px; }
+        .pos-label { color: #787b86; font-size: 9px; margin-bottom: 2px; }
+        .pos-val { font-weight: bold; font-family: monospace; font-size: 12px; }
+
+        .strat-select {
+            width: 100%; background: #131722; border: 1px solid #363a45; color: #fff; padding: 6px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; outline: none;
+        }
+        .strat-field { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px; }
+        .strat-input { width: 65px; background: #131722; border: 1px solid #363a45; color: #fff; padding: 3px 6px; border-radius: 4px; font-size: 11px; text-align: right; }
+        .strat-status-box { background: #131722; padding: 6px 8px; border-radius: 4px; margin-top: 6px; font-size: 11px; }
+        .strat-badge { font-weight: bold; padding: 2px 6px; border-radius: 3px; font-size: 10px; display: inline-block; }
+        .badge-long { background: rgba(38, 166, 154, 0.2); color: #26a69a; border: 1px solid #26a69a; }
+        .badge-short { background: rgba(239, 83, 80, 0.2); color: #ef5350; border: 1px solid #ef5350; }
+        .badge-virt { background: rgba(255, 152, 0, 0.2); color: #ff9800; border: 1px solid #ff9800; }
+        .badge-wait { background: rgba(120, 123, 134, 0.2); color: #787b86; border: 1px solid #787b86; }
+
+        .trade-log { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; font-family: monospace; background: #131722; }
+        .log-item { padding: 3px 0; border-bottom: 1px solid #1a1d26; line-height: 1.3; }
+        .log-buy { color: #26a69a; }
+        .log-sell { color: #ef5350; }
+        .log-stop { color: #ff9800; font-weight: bold; }
+        .log-reentry { color: #00e676; font-weight: bold; }
+        .log-info { color: #42a5f5; }
+
+        footer {
+            height: 64px; background-color: #1e222d; border-top: 1px solid #2a2e39;
+            display: flex; align-items: center; padding: 0 16px; gap: 16px; user-select: none;
+        }
+        .play-btn {
+            background: #2962ff; color: #fff; width: 44px; height: 44px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: 0.15s; flex-shrink: 0;
+        }
+        .play-btn:hover { background: #1e53e5; transform: scale(1.05); }
+
+        .step-btn {
+            background: #2a2e39; color: #d1d4dc; border: 1px solid #363a45; padding: 6px 10px; border-radius: 4px;
+            font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;
+        }
+        .step-btn:hover { background: #363a45; color: #fff; }
+
+        .timeline-box { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .timeline-info { display: flex; justify-content: space-between; font-size: 11px; color: #787b86; font-family: monospace; }
+        .timeline-slider { width: 100%; accent-color: #2962ff; cursor: pointer; }
+
+        .speed-group { display: flex; gap: 4px; align-items: center; }
+        .speed-label { font-size: 11px; color: #787b86; margin-right: 4px; }
+        .speed-btn {
+            background: #2a2e39; border: none; color: #787b86; padding: 4px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;
+        }
+        .speed-btn:hover { color: #fff; }
+        .speed-btn.active { background: #2962ff; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-left">
+            <div class="logo">⚡ Market Replayer</div>
+            <div class="ticker-badge" id="ticker-label">MXU6</div>
+
+            <div class="tf-group">
+                <button class="tf-btn" data-tf="ticks">Тики</button>
+                <button class="tf-btn" data-tf="10s">10s</button>
+                <button class="tf-btn" data-tf="30s">30s</button>
+                <button class="tf-btn" data-tf="1m">1M</button>
+                <button class="tf-btn active" data-tf="3m">3M</button>
+                <button class="tf-btn" data-tf="5m">5M</button>
+                <button class="tf-btn" data-tf="15m">15M</button>
+            </div>
+
+            <button class="chart-type-btn" id="toggle-chart-type">Тип: Свечи</button>
+        </div>
+
+        <div class="header-right">
+            <span id="load-status" style="font-size: 12px; color: #787b86;">Загрузка данных...</span>
+            <label class="btn-file">
+                📁 Открыть TXT / CSV / BIN
+                <input type="file" class="file-input" id="file-input" accept=".txt,.csv,.bin">
+            </label>
+            <button class="btn-export" id="btn-export-bin" title="Сохранить пожатые тики без потерь">💾 Экспорт в .bin</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div id="chart-container" style="position: relative;">`n            <canvas id="trade-overlay" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 5;"></canvas>
+            <div class="ohlc-legend" id="ohlc-legend">
+                <span>O: <span class="ohlc-val" id="ohlc-o">-</span></span>
+                <span>H: <span class="ohlc-val" id="ohlc-h">-</span></span>
+                <span>L: <span class="ohlc-val" id="ohlc-l">-</span></span>
+                <span>C: <span class="ohlc-val" id="ohlc-c">-</span></span>
+                <span>V: <span class="ohlc-val" id="ohlc-v">-</span></span>
+            </div>
+        </div>
+
+        <aside>
+            <div class="panel-section">
+                <div class="panel-title">Режим стратегии</div>
+                <select class="strat-select" id="strat-mode">
+                    <option value="true_fractal" selected>🌟 True Fractal (Opening Range + TODO)</option>
+                    <option value="reentry">⚡ Re-Entry Stop Hunter (Стоп 3-5 пт + перезаход)</option>
+                    <option value="manual">🖐 Ручная торговля (Manual)</option>
+                </select>
+
+                <div id="true-fractal-panel">
+                    <div class="strat-field">
+                        <span>Направление работы:</span>
+                        <select class="strat-input" id="tf-op" style="width: 80px;">
+                            <option value="B" selected>LONG</option>
+                            <option value="S">SHORT</option>
+                        </select>
+                    </div>
+                    <div class="strat-field">
+                        <span>Стоп slOffset (пт):</span>
+                        <input type="number" class="strat-input" id="tf-sl" value="75" step="25">
+                    </div>
+                    <div class="strat-field">
+                        <span>Тейк tpOffset (пт):</span>
+                        <input type="number" class="strat-input" id="tf-tp" value="400" step="25">
+                    </div>
+                    <div class="strat-field">
+                        <span>Сделок на уровень:</span>
+                        <input type="number" class="strat-input" id="tf-count" value="4" min="1" max="10">
+                    </div>
+
+                    <div class="strat-status-box">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>Реальные (count_t):</span>
+                            <b id="tf-cnt-t" style="color: #26a69a;">4 / 4</b>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>Виртуальные (count_v):</span>
+                            <b id="tf-cnt-v" style="color: #ff9800;">4 / 4</b>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>Базовый фрактал:</span>
+                            <b id="tf-start-price" style="font-family: monospace;">-</b>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                            <span>Статус:</span>
+                            <span class="strat-badge badge-wait" id="tf-status-badge">ОЖИДАНИЕ</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="reentry-panel" style="display: none;">
+                    <div class="strat-field">
+                        <span>Стоп (пт):</span>
+                        <input type="number" class="strat-input" id="strat-stop" value="50" step="25">
+                    </div>
+                    <div class="strat-field">
+                        <span>Тейк (пт):</span>
+                        <input type="number" class="strat-input" id="strat-take" value="200" step="25">
+                    </div>
+                    <div class="strat-field">
+                        <span>Перезаходов (макс):</span>
+                        <input type="number" class="strat-input" id="strat-max-re" value="1" min="1" max="5">
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">Торговля & Баланс</div>
+                <div class="price-badge" id="current-price">218 700</div>
+                <div class="trade-buttons">
+                    <button class="btn-trade btn-buy" id="btn-buy">BUY</button>
+                    <button class="btn-trade btn-sell" id="btn-sell">SELL</button>
+                </div>
+                <button class="btn-flat" id="btn-close">ЗАКРЫТЬ ПОЗИЦИЮ (FLAT)</button>
+
+                <div class="pos-info">
+                    <div class="pos-card">
+                        <div class="pos-label">РЕАЛЬНАЯ ПОЗИЦИЯ</div>
+                        <div class="pos-val" id="pos-qty">0 (FLAT)</div>
+                    </div>
+                    <div class="pos-card">
+                        <div class="pos-label">ПЛАВАЮЩИЙ PnL</div>
+                        <div class="pos-val" id="pos-unrealized">0 пт</div>
+                    </div>
+                    <div class="pos-card">
+                        <div class="pos-label">ЦЕНА ВХОДА</div>
+                        <div class="pos-val" id="pos-entry">-</div>
+                    </div>
+                    <div class="pos-card">
+                        <div class="pos-label">ИТОГО PnL ДНЯ</div>
+                        <div class="pos-val" id="pos-closed">0 пт</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-title" style="padding: 8px 14px 0 14px;">Лог сделок и триггеров</div>
+            <div class="trade-log" id="trade-log">
+                <div class="log-item" style="color: #787b86;">Готов к тестированию. Нажмите Play или Пробел.</div>
+            </div>
+        </aside>
+    </div>
+
+    <footer>
+        <button class="play-btn" id="play-btn" title="Старт / Пауза (Пробел)">▶</button>
+
+        <div style="display: flex; gap: 6px;">
+            <button class="step-btn" id="step-prev-bar" title="На 1 свечу назад">⏮ -1 бар</button>
+            <button class="step-btn" id="step-prev-tick" title="На 1 тик назад">◀ -1 тик</button>
+            <button class="step-btn" id="step-next-tick" title="На 1 тик вперед">▶ +1 тик</button>
+            <button class="step-btn" id="step-next-bar" title="На 1 свечу вперед">⏭ +1 бар</button>
+        </div>
+
+        <div class="timeline-box">
+            <div class="timeline-info">
+                <span id="timeline-time">Время: --:--:--</span>
+                <span id="timeline-ticks">Тики: 0 / 0</span>
+                <span id="timeline-pct">0%</span>
+            </div>
+            <input type="range" class="timeline-slider" id="timeline-slider" min="0" max="1000" value="0">
+        </div>
+
+        <div class="speed-group">
+            <span class="speed-label">Скорость:</span>
+            <button class="speed-btn" data-speed="1">1x</button>
+            <button class="speed-btn" data-speed="5">5x</button>
+            <button class="speed-btn" data-speed="20">20x</button>
+            <button class="speed-btn active" data-speed="100">100x</button>
+            <button class="speed-btn" data-speed="500">500x</button>
+            <button class="speed-btn" data-speed="2000">MAX</button>
+        </div>
+    </footer>
+
+    <script src="lightweight-charts.standalone.production.js"></script>
+    <script src="default_ticks.js"></script>
+    <script src="strategy_reentry.js"></script>
+    <script src="strategy_true_fractal.js"></script>
+    <script src="replayer_engine.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
