@@ -1,4 +1,4 @@
-﻿// UI and App Controller with Custom Trade Overlay
+﻿// UI and App Controller with High Performance Optimization
 const chartContainer = document.getElementById('chart-container');
 const overlayCanvas = document.getElementById('trade-overlay');
 const overlayCtx = overlayCanvas.getContext('2d');
@@ -30,32 +30,38 @@ const volumeSeries = chart.addHistogramSeries({
 });
 volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
-// Линии фракталов
+// Линии активных уровней фракталов
 let fractalPriceLines = [];
-function clearFractalLines() {
-    fractalPriceLines.forEach(l => candleSeries.removePriceLine(l));
-    fractalPriceLines = [];
-}
-function addFractalLine(price, title, color) {
-    const line = candleSeries.createPriceLine({
-        price: price, color: color || '#2962ff', lineWidth: 1,
-        lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: title,
+function updateFractalLines(fractals) {
+    fractalPriceLines.forEach(l => {
+        try { candleSeries.removePriceLine(l); } catch (e) {}
     });
-    fractalPriceLines.push(line);
+    fractalPriceLines = [];
+
+    if (!fractals || !fractals.length) return;
+    fractals.forEach((f, idx) => {
+        try {
+            const line = candleSeries.createPriceLine({
+                price: f,
+                color: idx === 0 ? '#2962ff' : '#ff9800',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: idx === 0 ? 'Open Auction' : `Fractal ${f}`,
+            });
+            fractalPriceLines.push(line);
+        } catch (e) {}
+    });
 }
 
-// Список сделок для отрисовки треугольничков
+// Список сделок для Canvas Overlay
 let tradesList = [];
-let reentriesByBarAndLevel = {}; // ключ: `${barTime}_${price}` -> count
 
 function renderTradeMarkers() {
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     if (!tradesList.length) return;
 
     const tfSec = engine.isTickMode ? 1 : engine.timeframeSec;
-
-    // Динамическая группировка сделок под ТЕКУЩИЙ выбранный таймфрейм
-    // На старших таймфреймах все сделки внутри свечи суммируются!
     const barGroups = {};
 
     tradesList.forEach(t => {
@@ -68,25 +74,21 @@ function renderTradeMarkers() {
                 dir: t.dir,
                 totalCount: 0,
                 priceSum: 0,
-                lastPrice: t.price
             };
         }
         barGroups[key].totalCount++;
         barGroups[key].priceSum += t.price;
-        barGroups[key].lastPrice = t.price;
     });
 
-    // Отрисовываем сгруппированные треугольнички
     Object.values(barGroups).forEach(g => {
         const x = chart.timeScale().timeToCoordinate(g.barTime);
         const avgPrice = g.priceSum / g.totalCount;
         const y = candleSeries.priceToCoordinate(avgPrice);
 
         if (x === null || y === null) return;
-        if (x < -40 || x > overlayCanvas.width + 40 || y < -40 || y > overlayCanvas.height + 40) return;
+        if (x < -30 || x > overlayCanvas.width + 30 || y < -30 || y > overlayCanvas.height + 30) return;
 
         const size = 6;
-        // Треугольничек рядом со свечой
         const posX = x + 8;
 
         overlayCtx.fillStyle = g.dir > 0 ? '#26a69a' : '#ef5350';
@@ -103,7 +105,7 @@ function renderTradeMarkers() {
         overlayCtx.closePath();
         overlayCtx.fill();
 
-        // Суммарное количество входов на этой свече
+        // Суммарное число входов на свече
         overlayCtx.fillStyle = '#ffffff';
         overlayCtx.font = 'bold 11px monospace';
         overlayCtx.textAlign = 'left';
@@ -112,7 +114,6 @@ function renderTradeMarkers() {
     });
 }
 
-// Перерисовка маркеров при зуме и сдвиге графика
 chart.timeScale().subscribeVisibleLogicalRangeChange(renderTradeMarkers);
 chart.timeScale().subscribeVisibleTimeRangeChange(renderTradeMarkers);
 
@@ -127,7 +128,7 @@ let closedPnL = 0;
 let lastPrice = 0;
 
 function updateTradingUI() {
-    document.getElementById('current-price').innerText = lastPrice.toLocaleString('ru-RU');
+    document.getElementById('current-price').innerText = lastPrice ? lastPrice.toLocaleString('ru-RU') : '-';
     const posQtyEl = document.getElementById('pos-qty');
     const posUnrealEl = document.getElementById('pos-unrealized');
     const posEntryEl = document.getElementById('pos-entry');
@@ -152,7 +153,162 @@ function updateTradingUI() {
     posClosedEl.innerText = (closedPnL >= 0 ? '+' : '') + closedPnL + ' пт';
     posClosedEl.style.color = closedPnL >= 0 ? '#26a69a' : '#ef5350';
 
+    if (activeStrategyName === 'true_fractal') {
+        const frcCount = stratTrueFractal.fractals ? stratTrueFractal.fractals.length : 0;
+        const lastFrc = frcCount > 0 ? stratTrueFractal.fractals[frcCount - 1] : '-';
+        document.getElementById('tf-cnt-t').innerText = `Фракталов в работе: ${frcCount}`;
+        document.getElementById('tf-cnt-v').innerText = `Всего найдено: ${stratTrueFractal.fractalPoints.length}`;
+        document.getElementById('tf-start-price').innerText = (lastFrc !== '-' && typeof lastFrc === 'number') ? lastFrc.toLocaleString('ru-RU') : '-';
+
+        const badge = document.getElementById('tf-status-badge');
+        if (stratTrueFractal.opn) {
+            badge.className = 'strat-badge ' + (stratTrueFractal.realDir > 0 ? 'badge-long' : 'badge-short');
+            badge.innerText = stratTrueFractal.realDir > 0 ? 'В РЕАЛЬНОМ ЛОНГЕ' : 'В РЕАЛЬНОМ ШОРТЕ';
+        } else if (stratTrueFractal.virt) {
+            badge.className = 'strat-badge badge-virt';
+            badge.innerText = stratTrueFractal.virtDir > 0 ? 'ВИРТ-ЛОНГ' : 'ВИРТ-ШОРТ';
+        } else {
+            badge.className = 'strat-badge badge-wait';
+            badge.innerText = 'ОЖИДАНИЕ ПРОБОЯ';
+        }
+    }
+}
+
+function addLog(text, className) {
+    const logEl = document.getElementById('trade-log');
+    const div = document.createElement('div');
+    div.className = 'log-item ' + (className || '');
+    const timeStr = new Date().toLocaleTimeString('ru-RU');
+    div.innerText = `[${timeStr}] ${text}`;
+    logEl.prepend(div);
+}
+
+function executeTrade(dir, price, isStrategy = false, comment = '') {
+    const timeSec = engine.timestamps[engine.currentIndex - 1] || 0;
+
+    if (openPos !== 0) {
+        const pnl = openPos > 0 ? (price - entryPrice) : (entryPrice - price);
+        closedPnL += pnl;
+        addLog(`Закрыт ${openPos > 0 ? 'LONG' : 'SHORT'} по ${price} (PnL: ${pnl >= 0 ? '+' : ''}${pnl} пт) ${comment}`, pnl >= 0 ? 'log-buy' : 'log-sell');
+        openPos = 0;
+    }
+
+    if (dir !== 0) {
+        openPos = dir;
+        entryPrice = price;
+        addLog(`${isStrategy ? '[РОБОТ] ' : ''}Вход в ${dir > 0 ? 'LONG' : 'SHORT'} по ${price}. ${comment}`, dir > 0 ? 'log-buy' : 'log-sell');
+
+        tradesList.push({
+            time: timeSec,
+            price: price,
+            dir: dir
+        });
+
+        renderTradeMarkers();
+
+        if (!isStrategy && activeStrategyName === 'reentry') {
+            stratReentry.openPosition(dir, price);
+        }
+    }
+    updateTradingUI();
+}
+
+document.getElementById('btn-buy').onclick = () => executeTrade(1, lastPrice);
+document.getElementById('btn-sell').onclick = () => executeTrade(-1, lastPrice);
+document.getElementById('btn-close').onclick = () => executeTrade(0, lastPrice);
+
+const stratModeSelect = document.getElementById('strat-mode');
+const tfPanel = document.getElementById('true-fractal-panel');
+const rePanel = document.getElementById('reentry-panel');
+
+stratModeSelect.onchange = () => {
+    activeStrategyName = stratModeSelect.value;
+    tfPanel.style.display = activeStrategyName === 'true_fractal' ? 'block' : 'none';
+    rePanel.style.display = activeStrategyName === 'reentry' ? 'block' : 'none';
+
+    stratTrueFractal.enabled = (activeStrategyName === 'true_fractal');
+    stratReentry.enabled = (activeStrategyName === 'reentry');
+
+    addLog(`Выбрана стратегия: ${stratModeSelect.options[stratModeSelect.selectedIndex].text}`, 'log-info');
+    resyncStrategy();
+};
+
+document.getElementById('tf-op').onchange = (e) => {
+    stratTrueFractal.operation = e.target.value;
+    resyncStrategy();
+};
+document.getElementById('tf-sl').onchange = (e) => stratTrueFractal.slOffset = parseFloat(e.target.value) || 75;
+document.getElementById('tf-tp').onchange = (e) => stratTrueFractal.tpOffset = parseFloat(e.target.value) || 400;
+
+// Синхронизация стратегии при перемотке
+function resyncStrategy() {
+    tradesList = [];
+    openPos = 0;
+    entryPrice = 0;
+    closedPnL = 0;
+    stratTrueFractal.reset();
+    stratReentry.reset();
+
+    const targetIdx = engine.currentIndex;
+    if (!targetIdx || targetIdx <= 0) {
+        updateFractalLines([]);
+        renderTradeMarkers();
+        updateTradingUI();
+        return;
+    }
+
+    // Быстрый прогон стратегии от 0 до targetIdx
+    for (let i = 0; i < targetIdx; i++) {
+        const tick = {
+            time: engine.timestamps[i],
+            price: engine.prices[i],
+            vol: engine.volumes[i],
+            index: i
+        };
+
         if (activeStrategyName === 'true_fractal') {
+            stratTrueFractal.onTick(tick, (event) => {
+                if (event.action === 'BUY' || event.action === 'SELL') {
+                    if (openPos !== 0) {
+                        const pnl = openPos > 0 ? (event.price - entryPrice) : (entryPrice - event.price);
+                        closedPnL += pnl;
+                        openPos = 0;
+                    }
+                    openPos = event.direction;
+                    entryPrice = event.price;
+                    tradesList.push({ time: tick.time, price: event.price, dir: event.direction });
+                } else if (event.action === 'CLOSE') {
+                    if (openPos !== 0) {
+                        const pnl = openPos > 0 ? (event.price - entryPrice) : (entryPrice - event.price);
+                        closedPnL += pnl;
+                        openPos = 0;
+                    }
+                }
+            });
+        }
+    }
+
+    updateFractalLines(stratTrueFractal.fractals);
+    renderTradeMarkers();
+    updateTradingUI();
+}
+
+engine.onBarUpdateCallback = (bar, vol, isNew) => {
+    if (!engine.isTickMode) {
+        candleSeries.update(bar);
+        volumeSeries.update(vol);
+        renderTradeMarkers();
+    }
+};
+
+engine.onTickCallback = (tick) => {
+    lastPrice = tick.price;
+    if (engine.isTickMode) {
+        lineSeries.update({ time: tick.time, value: tick.price });
+        volumeSeries.update({ time: tick.time, value: tick.vol, color: 'rgba(41, 98, 255, 0.4)' });
+    }
+
+    if (activeStrategyName === 'true_fractal') {
         stratTrueFractal.onTick(tick, (event) => {
             if (event.action === 'BUY' || event.action === 'SELL') {
                 executeTrade(event.direction, event.price, true, event.comment);
@@ -164,16 +320,7 @@ function updateTradingUI() {
                 addLog(event.comment, 'log-info');
             } else if (event.action === 'FRACTAL_FOUND') {
                 addLog(event.comment, 'log-info');
-            }
-
-            // Перерисовываем горизонтальные линии активных фракталов на графике
-            clearFractalLines();
-            if (stratTrueFractal.fractals && stratTrueFractal.fractals.length > 0) {
-                stratTrueFractal.fractals.forEach((f, idx) => {
-                    const color = idx === 0 ? '#2962ff' : '#ff9800';
-                    const title = idx === 0 ? 'Open Auction' : Fractal ;
-                    addFractalLine(f, title, color);
-                });
+                updateFractalLines(stratTrueFractal.fractals);
             }
         });
     }
@@ -237,7 +384,7 @@ timelineSlider.oninput = () => {
     const val = parseInt(timelineSlider.value, 10);
     const targetIdx = Math.floor((val / 1000) * engine.totalTicks);
     engine.seekToIndex(targetIdx);
-    renderTradeMarkers();
+    resyncStrategy();
 };
 timelineSlider.onchange = () => { isSeeking = false; };
 
@@ -250,10 +397,10 @@ playBtn.onclick = () => {
     updatePlayBtn();
 };
 
-document.getElementById('step-prev-bar').onclick = () => { engine.stepBarBackward(); renderTradeMarkers(); };
-document.getElementById('step-prev-tick').onclick = () => { engine.prevTick(); renderTradeMarkers(); };
-document.getElementById('step-next-tick').onclick = () => { engine.nextTick(); renderTradeMarkers(); };
-document.getElementById('step-next-bar').onclick = () => { engine.stepBarForward(); renderTradeMarkers(); };
+document.getElementById('step-prev-bar').onclick = () => { engine.stepBarBackward(); resyncStrategy(); };
+document.getElementById('step-prev-tick').onclick = () => { engine.prevTick(); resyncStrategy(); };
+document.getElementById('step-next-tick').onclick = () => { engine.nextTick(); };
+document.getElementById('step-next-bar').onclick = () => { engine.stepBarForward(); resyncStrategy(); };
 
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
@@ -303,6 +450,7 @@ function initEmbeddedData() {
         const count = engine.loadFromArrayBuffer(bytes.buffer);
         document.getElementById('load-status').innerText = `Готово: ${count.toLocaleString()} тиков (MXU6)`;
         engine.seekToIndex(1);
+        resyncStrategy();
     }
 }
 initEmbeddedData();
@@ -318,18 +466,16 @@ fileInput.onchange = (e) => {
         reader.onload = (ev) => {
             const count = engine.loadFromArrayBuffer(ev.target.result);
             document.getElementById('load-status').innerText = `Загружено: ${count.toLocaleString()} тиков`;
-            tradesList = [];
-            reentriesByBarAndLevel = {};
             engine.seekToIndex(1);
+            resyncStrategy();
         };
         reader.readAsArrayBuffer(file);
     } else {
         reader.onload = (ev) => {
             const count = engine.loadFromText(ev.target.result);
             document.getElementById('load-status').innerText = `Загружено: ${count.toLocaleString()} тиков`;
-            tradesList = [];
-            reentriesByBarAndLevel = {};
             engine.seekToIndex(1);
+            resyncStrategy();
         };
         reader.readAsText(file);
     }
