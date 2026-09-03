@@ -235,6 +235,14 @@ stratModeSelect.onchange = () => {
     resyncStrategy();
 };
 
+document.getElementById('tf-period').onchange = (e) => {
+    const sec = parseInt(e.target.value, 10) || 180;
+    stratTrueFractal.barPeriodSec = sec;
+    stratFractalReversal.barPeriodSec = sec;
+    addLog('Период фрактала изменен на: ' + e.target.options[e.target.selectedIndex].text, 'log-info');
+    resyncStrategy();
+};
+
 document.getElementById('tf-op').onchange = (e) => {
     stratTrueFractal.operation = e.target.value;
     resyncStrategy();
