@@ -1,31 +1,33 @@
-﻿// Strategy Module: True Fractal (New Pure Architecture)
+﻿// Strategy Module: True Fractal (Real Long on Up Fractal break UP, Virtual Short on Down Fractal break DOWN)
 class TrueFractalStrategy {
     constructor() {
         this.enabled = true;
-        this.operation = 'B';   // 'B': Long, 'S': Short, 'BOTH': Реверсивный (Long & Short)
+        this.operation = 'B';   // Робот работает ТОЛЬКО В ЛОНГ (реальные сделки)
         this.slOffset = 75;      // Размер стопа в пунктах
         this.tpOffset = 400;     // Размер тейка в пунктах
 
-        this.fractals = [];      // Таблица активных уровней цен фракталов
+        this.fractals = [];      // Все активные фракталы для отрисовки линий
+        this.upFractals = [];    // Фракталы вверх (High)
+        this.downFractals = [];  // Фракталы вниз (Low)
         this.fractalPoints = []; // Массив найденных 5-свечных фракталов: [{ time, price, type: 'UP'|'DOWN' }]
 
-        // Состояние реальной позиции
+        // Состояние реальной позиции (ТОЛЬКО ЛОНГ)
         this.opn = false;
-        this.realDir = 0;        // 1: Long, -1: Short
+        this.realDir = 1;        // Всегда 1 (Long)
         this.realEntry = 0;
         this.stopPrice = 0;
         this.takePrice = 0;
 
-        // Состояние виртуальной позиции
+        // Состояние виртуальной позиции (ТОЛЬКО ШОРТ)
         this.virt = false;
-        this.virtDir = 0;
+        this.virtDir = -1;       // Всегда -1 (Short)
         this.virtEntry = 0;
         this.virtStop = 0;
         this.virtTake = 0;
 
         // Построение 3-минутных баров для детектора 5-свечных фракталов
-        this.barPeriodSec = 180; // 3 минуты (как period_time в true_fractal.lua)
-        this.completedBars = []; // Завершенные 3-минутные свечи: [{ time, open, high, low, close }]
+        this.barPeriodSec = 180; // 3 минуты
+        this.completedBars = []; // Завершенные свечи
         this.buildingBar = null;
 
         this.firstBarFinished = false;
@@ -35,15 +37,16 @@ class TrueFractalStrategy {
 
     reset() {
         this.fractals = [];
+        this.upFractals = [];
+        this.downFractals = [];
         this.fractalPoints = [];
+
         this.opn = false;
-        this.realDir = 0;
         this.realEntry = 0;
         this.stopPrice = 0;
         this.takePrice = 0;
 
         this.virt = false;
-        this.virtDir = 0;
         this.virtEntry = 0;
         this.virtStop = 0;
         this.virtTake = 0;
@@ -61,17 +64,16 @@ class TrueFractalStrategy {
         const timeSec = tick.time;
 
         // =========================================================================
-        // ПУНКТ 1: СТАРТ ТОРГОВ (07:00:00) - Первая цена дня и мгновенный первый вход
+        // 1. СТАРТ ТОРГОВ (07:00:00) - Первая цена дня и мгновенный вход в ЛОНГ
         // =========================================================================
         if (!this.firstTickHandled) {
             this.firstTickHandled = true;
-            this.fractals = [price]; // Первый фрактал - цена аукциона открытия
+            this.fractals = [price];
+            this.upFractals = [price];
 
-            // Открываем первую сделку дня в направлении operation
-            const initialDir = (this.operation === 'S') ? -1 : 1;
-            this.openReal(initialDir, price, onOrderCallback, `СТАРТ СЕССИИ: Первая сделка по цене открытия ${price}`);
+            // Открываем первую реальную сделку в ЛОНГ
+            this.openReal(price, onOrderCallback, `СТАРТ ДНЯ: Первая сделка в ЛОНГ по цене открытия ${price}`);
 
-            // Инициализируем построение первой 3-минутной свечи
             const barTime = Math.floor(timeSec / this.barPeriodSec) * this.barPeriodSec;
             this.buildingBar = { time: barTime, open: price, high: price, low: price, close: price };
             this.prevPrice = price;
@@ -79,78 +81,78 @@ class TrueFractalStrategy {
         }
 
         // =========================================================================
-        // Агрегация 3-минутных свечей и поиск 5-свечных фракталов Билла Вильямса
+        // 2. Детектор 5-свечных фракталов Билла Вильямса
         // =========================================================================
         const currentBarTime = Math.floor(timeSec / this.barPeriodSec) * this.barPeriodSec;
 
         if (!this.buildingBar || currentBarTime > this.buildingBar.time) {
             if (this.buildingBar) {
-                // Предыдущая 3-минутная свеча закрылась
                 this.completedBars.push({ ...this.buildingBar });
 
-                // ПУНКТ 2: Завершение САМОЙ ПЕРВОЙ 3-минутной свечи
+                // Завершение 1-й 3-минутной свечи
                 if (!this.firstBarFinished) {
                     this.firstBarFinished = true;
                     const bar1 = this.completedBars[0];
-                    if (!this.fractals.includes(bar1.high)) this.fractals.push(bar1.high);
-                    if (!this.fractals.includes(bar1.low)) this.fractals.push(bar1.low);
+                    if (!this.upFractals.includes(bar1.high)) this.upFractals.push(bar1.high);
+                    if (!this.downFractals.includes(bar1.low)) this.downFractals.push(bar1.low);
+                    this.rebuildAllFractals();
 
                     if (onOrderCallback) {
                         onOrderCallback({
                             action: 'INFO',
-                            comment: `Сформирована 1-я свеча (3M): High=${bar1.high}, Low=${bar1.low}. Добавлены в таблицу фракталов!`
+                            comment: `1-я свеча (3M): High=${bar1.high} (фрактал вверх), Low=${bar1.low} (фрактал вниз)`
                         });
                     }
                 }
 
-                // ПУНКТ 3: Поиск 5-свечных фракталов Билла Вильямса
+                // 5-свечные фракталы
                 const len = this.completedBars.length;
                 if (len >= 5) {
-                    const c = len - 3; // Центральный бар (2 бара слева: c-2, c-1; 2 бара справа: c+1, c+2)
+                    const c = len - 3;
                     const b0 = this.completedBars[c - 2];
                     const b1 = this.completedBars[c - 1];
-                    const b2 = this.completedBars[c];     // Центр
+                    const b2 = this.completedBars[c];
                     const b3 = this.completedBars[c + 1];
                     const b4 = this.completedBars[c + 2];
 
-                    // Верхний фрактал (High центра строго выше соседей)
+                    // ФРАКТАЛ ВВЕРХ (High центра выше соседей)
                     if (b2.high > b0.high && b2.high > b1.high && b2.high > b3.high && b2.high > b4.high) {
                         const newF = b2.high;
-                        if (!this.fractals.includes(newF)) {
-                            this.fractals.push(newF);
-                            // Оставляем последние 8 активных фракталов
-                            if (this.fractals.length > 8) this.fractals.shift();
+                        if (!this.upFractals.includes(newF)) {
+                            this.upFractals.push(newF);
+                            if (this.upFractals.length > 5) this.upFractals.shift();
+                            this.rebuildAllFractals();
                         }
                         this.fractalPoints.push({ time: b2.time, price: newF, type: 'UP' });
                         if (onOrderCallback) {
                             onOrderCallback({
                                 action: 'FRACTAL_FOUND',
                                 fractal: { time: b2.time, price: newF, type: 'UP' },
-                                comment: `Найден ВЕРХНИЙ фрактал: ${newF}`
+                                comment: `Найден ФРАКТАЛ ВВЕРХ: ${newF} (триггер в РЕАЛЬНЫЙ ЛОНГ при пробое вверх)`
                             });
                         }
                     }
 
-                    // Нижний фрактал (Low центра строго ниже соседей)
+                    // ФРАКТАЛ ВНИЗ (Low центра ниже соседей)
                     if (b2.low < b0.low && b2.low < b1.low && b2.low < b3.low && b2.low < b4.low) {
                         const newF = b2.low;
-                        if (!this.fractals.includes(newF)) {
-                            this.fractals.push(newF);
-                            if (this.fractals.length > 8) this.fractals.shift();
+                        if (!this.downFractals.includes(newF)) {
+                            this.downFractals.push(newF);
+                            if (this.downFractals.length > 5) this.downFractals.shift();
+                            this.rebuildAllFractals();
                         }
                         this.fractalPoints.push({ time: b2.time, price: newF, type: 'DOWN' });
                         if (onOrderCallback) {
                             onOrderCallback({
                                 action: 'FRACTAL_FOUND',
                                 fractal: { time: b2.time, price: newF, type: 'DOWN' },
-                                comment: `Найден НИЖНИЙ фрактал: ${newF}`
+                                comment: `Найден ФРАКТАЛ ВНИЗ: ${newF} (триггер в ВИРТУАЛЬНЫЙ ШОРТ при пробое вниз)`
                             });
                         }
                     }
                 }
             }
 
-            // Открываем новую формирующуюся 3-минутную свечу
             this.buildingBar = { time: currentBarTime, open: price, high: price, low: price, close: price };
         } else {
             if (price > this.buildingBar.high) this.buildingBar.high = price;
@@ -159,111 +161,78 @@ class TrueFractalStrategy {
         }
 
         // =========================================================================
-        // Сопровождение РЕАЛЬНОЙ позиции (Стоп-Лосс и Тейк-Профит)
+        // 3. Сопровождение РЕАЛЬНОГО ЛОНГА (Стоп и Тейк)
         // =========================================================================
         if (this.opn) {
-            if (this.realDir === 1) { // Лонг
-                if (price <= this.stopPrice) {
-                    const pnl = price - this.realEntry;
-                    this.opn = false;
-                    if (onOrderCallback) {
-                        onOrderCallback({
-                            action: 'CLOSE',
-                            direction: -1,
-                            price: price,
-                            pnl: pnl,
-                            isStop: true,
-                            comment: `Стоп-Лосс в лонге (-${Math.abs(pnl)} пт) по ${price}`
-                        });
-                    }
-                } else if (price >= this.takePrice) {
-                    const pnl = price - this.realEntry;
-                    this.opn = false;
-                    if (onOrderCallback) {
-                        onOrderCallback({
-                            action: 'CLOSE',
-                            direction: -1,
-                            price: price,
-                            pnl: pnl,
-                            isTake: true,
-                            comment: `Тейк-Профит в лонге (+${pnl} пт) по ${price}!`
-                        });
-                    }
+            if (price <= this.stopPrice) {
+                const pnl = price - this.realEntry;
+                this.opn = false;
+                if (onOrderCallback) {
+                    onOrderCallback({
+                        action: 'CLOSE',
+                        direction: -1,
+                        price: price,
+                        pnl: pnl,
+                        isStop: true,
+                        comment: `Реальный Стоп в лонге (-${Math.abs(pnl)} пт) по ${price}`
+                    });
                 }
-            } else if (this.realDir === -1) { // Шорт
-                if (price >= this.stopPrice) {
-                    const pnl = this.realEntry - price;
-                    this.opn = false;
-                    if (onOrderCallback) {
-                        onOrderCallback({
-                            action: 'CLOSE',
-                            direction: 1,
-                            price: price,
-                            pnl: pnl,
-                            isStop: true,
-                            comment: `Стоп-Лосс в шорте (-${Math.abs(pnl)} пт) по ${price}`
-                        });
-                    }
-                } else if (price <= this.takePrice) {
-                    const pnl = this.realEntry - price;
-                    this.opn = false;
-                    if (onOrderCallback) {
-                        onOrderCallback({
-                            action: 'CLOSE',
-                            direction: 1,
-                            price: price,
-                            pnl: pnl,
-                            isTake: true,
-                            comment: `Тейк-Профит в шорте (+${pnl} пт) по ${price}!`
-                        });
-                    }
+            } else if (price >= this.takePrice) {
+                const pnl = price - this.realEntry;
+                this.opn = false;
+                if (onOrderCallback) {
+                    onOrderCallback({
+                        action: 'CLOSE',
+                        direction: -1,
+                        price: price,
+                        pnl: pnl,
+                        isTake: true,
+                        comment: `Реальный Тейк в лонге (+${pnl} пт) по ${price}!`
+                    });
                 }
             }
         }
 
         // =========================================================================
-        // Сопровождение ВИРТУАЛЬНОЙ позиции
+        // 4. Сопровождение ВИРТУАЛЬНОГО ШОРТА
         // =========================================================================
         if (this.virt) {
-            if (this.virtDir === 1) {
-                if (price <= this.virtStop || price >= this.virtTake) {
-                    this.virt = false;
-                    if (onOrderCallback) onOrderCallback({ action: 'INFO', comment: `Закрыта виртуальная сделка по ${price}` });
-                }
-            } else if (this.virtDir === -1) {
-                if (price >= this.virtStop || price <= this.virtTake) {
-                    this.virt = false;
-                    if (onOrderCallback) onOrderCallback({ action: 'INFO', comment: `Закрыта виртуальная сделка по ${price}` });
-                }
+            if (price >= this.virtStop) {
+                this.virt = false;
+                if (onOrderCallback) onOrderCallback({ action: 'INFO', comment: `Виртуальный шорт закрыт по стопу на ${price}` });
+            } else if (price <= this.virtTake) {
+                this.virt = false;
+                if (onOrderCallback) onOrderCallback({ action: 'INFO', comment: `Виртуальный шорт закрыт по тейку на ${price}` });
             }
         }
 
         // =========================================================================
-        // ПУНКТ 3: ВХОД ПРИ ПРОБОЕ ФРАКТАЛА
-        // Условие: ТОЛЬКО ЕСЛИ НЕТ ОТКРЫТОЙ РЕАЛЬНОЙ И ВИРТУАЛЬНОЙ ПОЗИЦИИ!
+        // 5. ВХОДЫ: ТОЛЬКО ЕСЛИ НЕТ ОТКРЫТОЙ РЕАЛЬНОЙ И ВИРТУАЛЬНОЙ ПОЗИЦИИ!
+        // - Пробой "ФРАКТАЛА ВВЕРХ" ВВЕРХ ➔ РЕАЛЬНЫЙ ЛОНГ 🟢
+        // - Пробой "ФРАКТАЛА ВНИЗ" ВНИЗ  ➔ ВИРТУАЛЬНЫЙ ШОРТ 🟠
         // =========================================================================
-        if (!this.opn && !this.virt && this.prevPrice !== 0 && this.fractals.length > 0) {
-            for (let i = 0; i < this.fractals.length; i++) {
-                const f = this.fractals[i];
+        if (!this.opn && !this.virt && this.prevPrice !== 0) {
+            // А. Проверяем фракталы вверх на пробой СНИЗУ ВВЕРХ -> РЕАЛЬНЫЙ ЛОНГ
+            for (let i = 0; i < this.upFractals.length; i++) {
+                const f = this.upFractals[i];
                 const crossUp = (this.prevPrice < f && price >= f);
-                const crossDown = (this.prevPrice > f && price <= f);
 
                 if (crossUp) {
-                    // Пробой фрактала снизу вверх -> ЛОНГ
-                    if (this.operation === 'B' || this.operation === 'BOTH') {
-                        this.openReal(1, price, onOrderCallback, `Пробой фрактала ${f} снизу вверх -> Вход в LONG`);
-                    } else if (this.operation === 'S') {
-                        this.openVirtual(1, price, onOrderCallback, `Пробой фрактала ${f} снизу вверх -> Виртуальный Long`);
-                    }
+                    this.openReal(price, onOrderCallback, `Пробой фрактала вверх ${f} ВВЕРХ -> РЕАЛЬНЫЙ ЛОНГ`);
                     break;
-                } else if (crossDown) {
-                    // Пробой фрактала сверху вниз -> ШОРТ
-                    if (this.operation === 'S' || this.operation === 'BOTH') {
-                        this.openReal(-1, price, onOrderCallback, `Пробой фрактала ${f} сверху вниз -> Вход в SHORT`);
-                    } else if (this.operation === 'B') {
-                        this.openVirtual(-1, price, onOrderCallback, `Пробой фрактала ${f} сверху вниз -> Виртуальный Short`);
+                }
+            }
+
+            // Б. Проверяем фракталы вниз на пробой СВЕРХУ ВНИЗ -> ВИРТУАЛЬНЫЙ ШОРТ
+            if (!this.opn && !this.virt) {
+                for (let i = 0; i < this.downFractals.length; i++) {
+                    const f = this.downFractals[i];
+                    const crossDown = (this.prevPrice > f && price <= f);
+
+                    if (crossDown) {
+                        this.openVirtual(price, onOrderCallback, `Пробой фрактала вниз ${f} ВНИЗ -> ВИРТУАЛЬНЫЙ ШОРТ`);
+                        break;
                     }
-                    break;
                 }
             }
         }
@@ -271,23 +240,21 @@ class TrueFractalStrategy {
         this.prevPrice = price;
     }
 
-    openReal(direction, price, onOrderCallback, comment) {
-        this.opn = true;
-        this.realDir = direction;
-        this.realEntry = price;
+    rebuildAllFractals() {
+        this.fractals = [...this.downFractals, ...this.upFractals];
+    }
 
-        if (direction === 1) {
-            this.stopPrice = price - this.slOffset;
-            this.takePrice = price + this.tpOffset;
-        } else {
-            this.stopPrice = price + this.slOffset;
-            this.takePrice = price - this.tpOffset;
-        }
+    openReal(price, onOrderCallback, comment) {
+        this.opn = true;
+        this.realDir = 1;
+        this.realEntry = price;
+        this.stopPrice = price - this.slOffset;
+        this.takePrice = price + this.tpOffset;
 
         if (onOrderCallback) {
             onOrderCallback({
-                action: direction === 1 ? 'BUY' : 'SELL',
-                direction: direction,
+                action: 'BUY',
+                direction: 1,
                 price: price,
                 stop: this.stopPrice,
                 take: this.takePrice,
@@ -296,23 +263,17 @@ class TrueFractalStrategy {
         }
     }
 
-    openVirtual(direction, price, onOrderCallback, comment) {
+    openVirtual(price, onOrderCallback, comment) {
         this.virt = true;
-        this.virtDir = direction;
+        this.virtDir = -1;
         this.virtEntry = price;
-
-        if (direction === 1) {
-            this.virtStop = price - this.slOffset;
-            this.virtTake = price + this.tpOffset;
-        } else {
-            this.virtStop = price + this.slOffset;
-            this.virtTake = price - this.tpOffset;
-        }
+        this.virtStop = price + this.slOffset;
+        this.virtTake = price - this.tpOffset;
 
         if (onOrderCallback) {
             onOrderCallback({
                 action: 'INFO',
-                comment: `[VIRTUAL] ${direction === 1 ? 'ЛОНГ' : 'ШОРТ'} по ${price}. ${comment}`
+                comment: `[VIRTUAL SHORT] Вход в вирт-шорт по ${price}. ${comment}`
             });
         }
     }
