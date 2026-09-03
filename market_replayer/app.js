@@ -152,120 +152,7 @@ function updateTradingUI() {
     posClosedEl.innerText = (closedPnL >= 0 ? '+' : '') + closedPnL + ' пт';
     posClosedEl.style.color = closedPnL >= 0 ? '#26a69a' : '#ef5350';
 
-    if (activeStrategyName === 'true_fractal') {
-        document.getElementById('tf-cnt-t').innerText = `${stratTrueFractal.count_t} / ${stratTrueFractal.countTrades}`;
-        document.getElementById('tf-cnt-v').innerText = `${stratTrueFractal.count_v} / ${stratTrueFractal.countTrades}`;
-        document.getElementById('tf-start-price').innerText = stratTrueFractal.startPrice ? stratTrueFractal.startPrice.toLocaleString('ru-RU') : '-';
-
-        const badge = document.getElementById('tf-status-badge');
-        if (stratTrueFractal.opn) {
-            badge.className = 'strat-badge ' + (stratTrueFractal.realDir > 0 ? 'badge-long' : 'badge-short');
-            badge.innerText = stratTrueFractal.realDir > 0 ? 'РЕАЛЬНЫЙ ЛОНГ' : 'РЕАЛЬНЫЙ ШОРТ';
-        } else if (stratTrueFractal.virt) {
-            badge.className = 'strat-badge badge-virt';
-            badge.innerText = stratTrueFractal.virtDir > 0 ? 'ВИРТ-ЛОНГ' : 'ВИРТ-ШОРТ';
-        } else {
-            badge.className = 'strat-badge badge-wait';
-            badge.innerText = stratTrueFractal.startPrice === 0 ? 'УРОВЕНЬ СБРОШЕН' : 'ОЖИДАНИЕ ПРОБОЯ';
-        }
-    }
-}
-
-function addLog(text, className) {
-    const logEl = document.getElementById('trade-log');
-    const div = document.createElement('div');
-    div.className = 'log-item ' + (className || '');
-    const timeStr = new Date().toLocaleTimeString('ru-RU');
-    div.innerText = `[${timeStr}] ${text}`;
-    logEl.prepend(div);
-}
-
-function executeTrade(dir, price, isStrategy = false, comment = '') {
-    const timeSec = engine.timestamps[engine.currentIndex - 1] || 0;
-    const barTime = Math.floor(timeSec / engine.timeframeSec) * engine.timeframeSec;
-
-    if (openPos !== 0) {
-        const pnl = openPos > 0 ? (price - entryPrice) : (entryPrice - price);
-        closedPnL += pnl;
-        addLog(`Закрыт ${openPos > 0 ? 'LONG' : 'SHORT'} по ${price} (PnL: ${pnl >= 0 ? '+' : ''}${pnl} пт) ${comment}`, pnl >= 0 ? 'log-buy' : 'log-sell');
-        openPos = 0;
-    }
-
-    if (dir !== 0) {
-        openPos = dir;
-        entryPrice = price;
-        addLog(`${isStrategy ? '[РОБОТ] ' : ''}Вход в ${dir > 0 ? 'LONG' : 'SHORT'} по ${price}. ${comment}`, dir > 0 ? 'log-buy' : 'log-sell');
-
-        // Подсчёт перезаходов на этой свече и этом уровне цены
-        const key = `${barTime}_${price}`;
-        reentriesByBarAndLevel[key] = (reentriesByBarAndLevel[key] || 0) + 1;
-        const count = reentriesByBarAndLevel[key];
-
-        // Сколько сделок всего на этой свече (для красивого смещения вправо)
-        const barTrades = tradesList.filter(t => t.barTime === barTime).length;
-
-        tradesList.push({
-            time: timeSec,
-            barTime: barTime,
-            price: price,
-            dir: dir,
-            reentryNum: count,
-            offsetIndex: barTrades
-        });
-
-        renderTradeMarkers();
-
-        if (!isStrategy && activeStrategyName === 'reentry') {
-            stratReentry.openPosition(dir, price);
-        }
-    }
-    updateTradingUI();
-}
-
-document.getElementById('btn-buy').onclick = () => executeTrade(1, lastPrice);
-document.getElementById('btn-sell').onclick = () => executeTrade(-1, lastPrice);
-document.getElementById('btn-close').onclick = () => executeTrade(0, lastPrice);
-
-const stratModeSelect = document.getElementById('strat-mode');
-const tfPanel = document.getElementById('true-fractal-panel');
-const rePanel = document.getElementById('reentry-panel');
-
-stratModeSelect.onchange = () => {
-    activeStrategyName = stratModeSelect.value;
-    tfPanel.style.display = activeStrategyName === 'true_fractal' ? 'block' : 'none';
-    rePanel.style.display = activeStrategyName === 'reentry' ? 'block' : 'none';
-
-    stratTrueFractal.enabled = (activeStrategyName === 'true_fractal');
-    stratReentry.enabled = (activeStrategyName === 'reentry');
-
-    addLog(`Выбрана стратегия: ${stratModeSelect.options[stratModeSelect.selectedIndex].text}`, 'log-info');
-};
-
-document.getElementById('tf-op').onchange = (e) => stratTrueFractal.operation = e.target.value;
-document.getElementById('tf-sl').onchange = (e) => stratTrueFractal.slOffset = parseFloat(e.target.value) || 75;
-document.getElementById('tf-tp').onchange = (e) => stratTrueFractal.tpOffset = parseFloat(e.target.value) || 400;
-document.getElementById('tf-count').onchange = (e) => {
-    stratTrueFractal.countTrades = parseInt(e.target.value, 10) || 4;
-    stratTrueFractal.count_t = stratTrueFractal.countTrades;
-    stratTrueFractal.count_v = stratTrueFractal.countTrades;
-};
-
-engine.onBarUpdateCallback = (bar, vol, isNew) => {
-    if (!engine.isTickMode) {
-        candleSeries.update(bar);
-        volumeSeries.update(vol);
-        renderTradeMarkers();
-    }
-};
-
-engine.onTickCallback = (tick) => {
-    lastPrice = tick.price;
-    if (engine.isTickMode) {
-        lineSeries.update({ time: tick.time, value: tick.price });
-        volumeSeries.update({ time: tick.time, value: tick.vol, color: 'rgba(41, 98, 255, 0.4)' });
-    }
-
-    if (activeStrategyName === 'true_fractal') {
+        if (activeStrategyName === 'true_fractal') {
         stratTrueFractal.onTick(tick, (event) => {
             if (event.action === 'BUY' || event.action === 'SELL') {
                 executeTrade(event.direction, event.price, true, event.comment);
@@ -275,12 +162,19 @@ engine.onTickCallback = (tick) => {
                 if (event.isTake) addLog(event.comment, 'log-buy');
             } else if (event.action === 'INFO') {
                 addLog(event.comment, 'log-info');
+            } else if (event.action === 'FRACTAL_FOUND') {
+                addLog(event.comment, 'log-info');
             }
 
+            // Перерисовываем горизонтальные линии активных фракталов на графике
             clearFractalLines();
-            if (stratTrueFractal.fractals[0]) addFractalLine(stratTrueFractal.fractals[0], 'Open Auction', '#2962ff');
-            if (stratTrueFractal.fractals[1]) addFractalLine(stratTrueFractal.fractals[1], '1st Bar High', '#26a69a');
-            if (stratTrueFractal.fractals[2]) addFractalLine(stratTrueFractal.fractals[2], '1st Bar Low', '#ef5350');
+            if (stratTrueFractal.fractals && stratTrueFractal.fractals.length > 0) {
+                stratTrueFractal.fractals.forEach((f, idx) => {
+                    const color = idx === 0 ? '#2962ff' : '#ff9800';
+                    const title = idx === 0 ? 'Open Auction' : Fractal ;
+                    addFractalLine(f, title, color);
+                });
+            }
         });
     }
 
