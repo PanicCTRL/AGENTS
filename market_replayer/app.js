@@ -120,6 +120,7 @@ chart.timeScale().subscribeVisibleTimeRangeChange(renderTradeMarkers);
 const engine = new ReplayerEngine();
 const stratReentry = new ReentryStrategy();
 const stratTrueFractal = new TrueFractalStrategy();
+const stratFractalReversal = new FractalReversalStrategy();
 
 let activeStrategyName = 'true_fractal';
 let openPos = 0;
@@ -223,10 +224,11 @@ const rePanel = document.getElementById('reentry-panel');
 
 stratModeSelect.onchange = () => {
     activeStrategyName = stratModeSelect.value;
-    tfPanel.style.display = activeStrategyName === 'true_fractal' ? 'block' : 'none';
+    tfPanel.style.display = (activeStrategyName === 'true_fractal' || activeStrategyName === 'fractal_reversal') ? 'block' : 'none';
     rePanel.style.display = activeStrategyName === 'reentry' ? 'block' : 'none';
 
     stratTrueFractal.enabled = (activeStrategyName === 'true_fractal');
+    stratFractalReversal.enabled = (activeStrategyName === 'fractal_reversal');
     stratReentry.enabled = (activeStrategyName === 'reentry');
 
     addLog(`Выбрана стратегия: ${stratModeSelect.options[stratModeSelect.selectedIndex].text}`, 'log-info');
@@ -237,8 +239,14 @@ document.getElementById('tf-op').onchange = (e) => {
     stratTrueFractal.operation = e.target.value;
     resyncStrategy();
 };
-document.getElementById('tf-sl').onchange = (e) => stratTrueFractal.slOffset = parseFloat(e.target.value) || 75;
-document.getElementById('tf-tp').onchange = (e) => stratTrueFractal.tpOffset = parseFloat(e.target.value) || 400;
+document.getElementById('tf-sl').onchange = (e) => {
+    stratTrueFractal.slOffset = parseFloat(e.target.value) || 75;
+    stratFractalReversal.slOffset = parseFloat(e.target.value) || 75;
+};
+document.getElementById('tf-tp').onchange = (e) => {
+    stratTrueFractal.tpOffset = parseFloat(e.target.value) || 400;
+    stratFractalReversal.tpOffset = parseFloat(e.target.value) || 400;
+};
 
 // Синхронизация стратегии при перемотке
 function resyncStrategy() {
@@ -247,6 +255,7 @@ function resyncStrategy() {
     entryPrice = 0;
     closedPnL = 0;
     stratTrueFractal.reset();
+    stratFractalReversal.reset();
     stratReentry.reset();
 
     const targetIdx = engine.currentIndex;
@@ -266,8 +275,9 @@ function resyncStrategy() {
             index: i
         };
 
-        if (activeStrategyName === 'true_fractal') {
-            stratTrueFractal.onTick(tick, (event) => {
+        const activeStrat = activeStrategyName === 'fractal_reversal' ? stratFractalReversal : stratTrueFractal;
+        if (activeStrategyName === 'true_fractal' || activeStrategyName === 'fractal_reversal') {
+            activeStrat.onTick(tick, (event) => {
                 if (event.action === 'BUY' || event.action === 'SELL') {
                     if (openPos !== 0) {
                         const pnl = openPos > 0 ? (event.price - entryPrice) : (entryPrice - event.price);
@@ -308,8 +318,9 @@ engine.onTickCallback = (tick) => {
         volumeSeries.update({ time: tick.time, value: tick.vol, color: 'rgba(41, 98, 255, 0.4)' });
     }
 
-    if (activeStrategyName === 'true_fractal') {
-        stratTrueFractal.onTick(tick, (event) => {
+    if (activeStrategyName === 'true_fractal' || activeStrategyName === 'fractal_reversal') {
+        const activeStrat = activeStrategyName === 'fractal_reversal' ? stratFractalReversal : stratTrueFractal;
+        activeStrat.onTick(tick, (event) => {
             if (event.action === 'BUY' || event.action === 'SELL') {
                 executeTrade(event.direction, event.price, true, event.comment);
             } else if (event.action === 'CLOSE') {
@@ -320,7 +331,7 @@ engine.onTickCallback = (tick) => {
                 addLog(event.comment, 'log-info');
             } else if (event.action === 'FRACTAL_FOUND') {
                 addLog(event.comment, 'log-info');
-                updateFractalLines(stratTrueFractal.fractals);
+                updateFractalLines(activeStrat.fractals);
             }
         });
     }
