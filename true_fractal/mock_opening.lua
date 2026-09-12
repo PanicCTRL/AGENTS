@@ -57,11 +57,13 @@ lowerCorridor     = 0
 prevLowerCorridor = 0
 hasCorridor       = false
 
--- Уровень после взятия тейк-профита (по 4 попытки в каждую сторону)
+-- Уровень после взятия тейк-профита (только по тренду импульса, не чаще 1 входа на свечу)
 takeLevel         = 0
 takeCount_t       = 0
 takeCount_v       = 0
 hasTakeLevel      = false
+lastTakeBar       = -1
+candleIndex       = 0
 
 maxPrices       = {}
 minPrices       = {}
@@ -230,13 +232,13 @@ function CheckRealExit()
         end
         LogMockEvent("TAKE_LONG", "Тейк достигнут! Уровень отработан и забыт.")
 
-        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки в обе стороны)
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по тренду: 4 попытки в LONG, не чаще 1 на свечу)
         takeLevel    = earnedTake
         takeCount_t  = count_trades
-        takeCount_v  = count_trades
+        takeCount_v  = 0
         hasTakeLevel = true
         AddLevel(earnedTake)
-        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в LONG и SHORT)!")
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по тренду: 4 попытки в LONG)!")
     end
 end
 
@@ -286,13 +288,13 @@ function CheckVirtExit()
         end
         LogMockEvent("TAKE_SHORT", "Тейк достигнут! Уровень отработан и забыт.")
 
-        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки в обе стороны)
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по тренду: 4 попытки в SHORT, не чаще 1 на свечу)
         takeLevel    = earnedTake
-        takeCount_t  = count_trades
+        takeCount_t  = 0
         takeCount_v  = count_trades
         hasTakeLevel = true
         AddLevel(earnedTake)
-        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в LONG и SHORT)!")
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по тренду: 4 попытки в SHORT)!")
     end
 end
 
@@ -499,11 +501,12 @@ function ProcessCrosses()
         end
     end
 
-    -- 3. ЭТАП: ТОРГОВЛЯ ОТ УРОВНЯ ВЗЯТОГО ТЕЙКА (по 4 попытки в каждую сторону)
+    -- 3. ЭТАП: ТОРГОВЛЯ ОТ УРОВНЯ ВЗЯТОГО ТЕЙКА (только по тренду импульса, не чаще 1 на свечу)
     if hasTakeLevel and takeLevel > 0 then
-        -- Вход в LONG при пробое уровня тейка снизу вверх
+        -- Вход в LONG при пробое уровня тейка снизу вверх (только продолжение восходящего тренда)
         local crossTakeUp = (prevPrice < takeLevel and currentPrice >= takeLevel)
-        if crossTakeUp and not opn and takeCount_t > 0 then
+        if crossTakeUp and not opn and takeCount_t > 0 and lastTakeBar ~= candleIndex then
+            lastTakeBar = candleIndex
             takeCount_t = takeCount_t - 1
             longLevel   = takeLevel
             startPrice  = takeLevel
@@ -515,9 +518,10 @@ function ProcessCrosses()
             LogMockEvent("TRADE_OPEN", "Вход в LONG #" .. tostring(att) .. " от уровня тейка " .. tostring(longLevel) .. ". SL: " .. tostring(stop_price) .. ", TP: " .. tostring(take_price))
         end
 
-        -- Вход в SHORT при пробое уровня тейка сверху вниз
+        -- Вход в SHORT при пробое уровня тейка сверху вниз (только продолжение нисходящего тренда)
         local crossTakeDown = (prevPrice > takeLevel and currentPrice <= takeLevel)
-        if crossTakeDown and not virt and takeCount_v > 0 then
+        if crossTakeDown and not virt and takeCount_v > 0 and lastTakeBar ~= candleIndex then
+            lastTakeBar = candleIndex
             takeCount_v = takeCount_v - 1
             shortLevel  = takeLevel
             virt        = true
@@ -528,7 +532,7 @@ function ProcessCrosses()
             LogMockEvent("VIRT_OPEN", "Вход в SHORT #" .. tostring(att) .. " от уровня тейка " .. tostring(shortLevel) .. ". SL: " .. tostring(virt_stop) .. ", TP: " .. tostring(virt_take))
         end
 
-        -- Если обе стороны исчерпали по 4 попытки — уровень тейка забывается
+        -- Если обе стороны исчерпали попытки — уровень тейка забывается
         if takeCount_t <= 0 and takeCount_v <= 0 then
             hasTakeLevel = false
         end
@@ -539,6 +543,7 @@ end
 -- 7. ФИДЕРЫ ДАННЫХ ДЛЯ ТЕСТЕРА STRG
 -- ============================================================================
 function FeedBar(high, low)
+    candleIndex = candleIndex + 1
     PushPrice(high, low)
     CheckPlateau()
     GetFractal()
