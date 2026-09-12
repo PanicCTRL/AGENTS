@@ -57,13 +57,15 @@ lowerCorridor     = 0
 prevLowerCorridor = 0
 hasCorridor       = false
 
--- Уровень после взятия тейк-профита (только по тренду импульса, не чаще 1 входа на свечу)
+-- Уровень после взятия тейк-профита (1-й вход на той же свече, перевходы только на растущей/падающей)
 takeLevel         = 0
 takeCount_t       = 0
 takeCount_v       = 0
 hasTakeLevel      = false
 lastTakeBar       = -1
 candleIndex       = 0
+candleOpenPrice   = 0
+isNewCandle       = false
 
 maxPrices       = {}
 minPrices       = {}
@@ -232,13 +234,13 @@ function CheckRealExit()
         end
         LogMockEvent("TAKE_LONG", "Тейк достигнут! Уровень отработан и забыт.")
 
-        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по тренду: 4 попытки в LONG, не чаще 1 на свечу)
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки: 1-й на той же свече, перевходы на растущей/падающей)
         takeLevel    = earnedTake
         takeCount_t  = count_trades
-        takeCount_v  = 0
+        takeCount_v  = count_trades
         hasTakeLevel = true
         AddLevel(earnedTake)
-        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по тренду: 4 попытки в LONG)!")
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в обе стороны)!")
     end
 end
 
@@ -288,13 +290,13 @@ function CheckVirtExit()
         end
         LogMockEvent("TAKE_SHORT", "Тейк достигнут! Уровень отработан и забыт.")
 
-        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по тренду: 4 попытки в SHORT, не чаще 1 на свечу)
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки: 1-й на той же свече, перевходы на растущей/падающей)
         takeLevel    = earnedTake
-        takeCount_t  = 0
+        takeCount_t  = count_trades
         takeCount_v  = count_trades
         hasTakeLevel = true
         AddLevel(earnedTake)
-        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по тренду: 4 попытки в SHORT)!")
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в обе стороны)!")
     end
 end
 
@@ -501,11 +503,17 @@ function ProcessCrosses()
         end
     end
 
-    -- 3. ЭТАП: ТОРГОВЛЯ ОТ УРОВНЯ ВЗЯТОГО ТЕЙКА (только по тренду импульса, не чаще 1 на свечу)
+    -- 3. ЭТАП: ТОРГОВЛЯ ОТ УРОВНЯ ВЗЯТОГО ТЕЙКА
+    -- Попытка 1: разрешена сразу на той же свече.
+    -- Перевход (еще 3 попытки): в LONG только на растущей свече, в SHORT только на падающей свече (не на той же свече).
     if hasTakeLevel and takeLevel > 0 then
-        -- Вход в LONG при пробое уровня тейка снизу вверх (только продолжение восходящего тренда)
+        -- Вход в LONG при пробое уровня тейка снизу вверх:
         local crossTakeUp = (prevPrice < takeLevel and currentPrice >= takeLevel)
-        if crossTakeUp and not opn and takeCount_t > 0 and lastTakeBar ~= candleIndex then
+        local isFirstAttempt_t = (takeCount_t == count_trades)
+        local isGrowingCandle = (candleOpenPrice > 0 and currentPrice > candleOpenPrice)
+        local canReenterLong = (takeCount_t < count_trades and lastTakeBar ~= candleIndex and isGrowingCandle)
+
+        if crossTakeUp and not opn and takeCount_t > 0 and (isFirstAttempt_t or canReenterLong) then
             lastTakeBar = candleIndex
             takeCount_t = takeCount_t - 1
             longLevel   = takeLevel
@@ -518,9 +526,13 @@ function ProcessCrosses()
             LogMockEvent("TRADE_OPEN", "Вход в LONG #" .. tostring(att) .. " от уровня тейка " .. tostring(longLevel) .. ". SL: " .. tostring(stop_price) .. ", TP: " .. tostring(take_price))
         end
 
-        -- Вход в SHORT при пробое уровня тейка сверху вниз (только продолжение нисходящего тренда)
+        -- Вход в SHORT при пробое уровня тейка сверху вниз:
         local crossTakeDown = (prevPrice > takeLevel and currentPrice <= takeLevel)
-        if crossTakeDown and not virt and takeCount_v > 0 and lastTakeBar ~= candleIndex then
+        local isFirstAttempt_v = (takeCount_v == count_trades)
+        local isFallingCandle = (candleOpenPrice > 0 and currentPrice < candleOpenPrice)
+        local canReenterShort = (takeCount_v < count_trades and lastTakeBar ~= candleIndex and isFallingCandle)
+
+        if crossTakeDown and not virt and takeCount_v > 0 and (isFirstAttempt_v or canReenterShort) then
             lastTakeBar = candleIndex
             takeCount_v = takeCount_v - 1
             shortLevel  = takeLevel
@@ -543,6 +555,7 @@ end
 -- 7. ФИДЕРЫ ДАННЫХ ДЛЯ ТЕСТЕРА STRG
 -- ============================================================================
 function FeedBar(high, low)
+    isNewCandle = true
     candleIndex = candleIndex + 1
     PushPrice(high, low)
     CheckPlateau()
@@ -563,6 +576,11 @@ function FeedTick(price, tick_time)
 
     prevPrice = currentPrice
     currentPrice = price
+
+    if isNewCandle then
+        candleOpenPrice = currentPrice
+        isNewCandle = false
+    end
 
     CheckRealExit()
     CheckVirtExit()
