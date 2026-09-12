@@ -57,6 +57,12 @@ lowerCorridor     = 0
 prevLowerCorridor = 0
 hasCorridor       = false
 
+-- Уровень после взятия тейк-профита (по 4 попытки в каждую сторону)
+takeLevel         = 0
+takeCount_t       = 0
+takeCount_v       = 0
+hasTakeLevel      = false
+
 maxPrices       = {}
 minPrices       = {}
 fractals        = {}
@@ -76,12 +82,16 @@ function LogMockEvent(eventType, message)
     ev.type   = eventType
     ev.msg    = message
     ev.price  = currentPrice
-    if longLevel == prevLowerCorridor and prevLowerCorridor > 0 then
+    if longLevel == takeLevel and hasTakeLevel then
+        ev.t_left = takeCount_t
+    elseif longLevel == prevLowerCorridor and prevLowerCorridor > 0 then
         ev.t_left = prevCount_t
     else
         ev.t_left = count_t
     end
-    if shortLevel == prevUpperCorridor and prevUpperCorridor > 0 then
+    if shortLevel == takeLevel and hasTakeLevel then
+        ev.v_left = takeCount_v
+    elseif shortLevel == prevUpperCorridor and prevUpperCorridor > 0 then
         ev.v_left = prevCount_v
     else
         ev.v_left = count_v
@@ -206,6 +216,7 @@ function CheckRealExit()
 
     -- Тейк-профит
     if currentPrice >= take_price then
+        local earnedTake = take_price
         LogMockEvent("TRADE_CLOSE", "Тейк по LONG взят на цене " .. tostring(currentPrice) .. ". Закрытие по TAKE-PROFIT")
         opn = false
         stop_price = 0
@@ -218,6 +229,14 @@ function CheckRealExit()
             longExhausted = true
         end
         LogMockEvent("TAKE_LONG", "Тейк достигнут! Уровень отработан и забыт.")
+
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки в обе стороны)
+        takeLevel    = earnedTake
+        takeCount_t  = count_trades
+        takeCount_v  = count_trades
+        hasTakeLevel = true
+        AddLevel(earnedTake)
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в LONG и SHORT)!")
     end
 end
 
@@ -253,6 +272,7 @@ function CheckVirtExit()
 
     -- Тейк-профит
     if currentPrice <= virt_take then
+        local earnedTake = virt_take
         LogMockEvent("VIRT_CLOSE", "Тейк по SHORT взят на цене " .. tostring(currentPrice) .. ". Закрытие по TAKE-PROFIT")
         virt = false
         virt_stop = 0
@@ -265,6 +285,14 @@ function CheckVirtExit()
             shortExhausted = true
         end
         LogMockEvent("TAKE_SHORT", "Тейк достигнут! Уровень отработан и забыт.")
+
+        -- Улучшение: Уровень взятого тейка становится новым уровнем торгов (по 4 попытки в обе стороны)
+        takeLevel    = earnedTake
+        takeCount_t  = count_trades
+        takeCount_v  = count_trades
+        hasTakeLevel = true
+        AddLevel(earnedTake)
+        LogMockEvent("NEW_TAKE_LEVEL", "Уровень тейка " .. tostring(earnedTake) .. " стал новым уровнем (по 4 попытки в LONG и SHORT)!")
     end
 end
 
@@ -468,6 +496,41 @@ function ProcessCrosses()
                     OpenReal(prevLowerCorridor)
                 end
             end
+        end
+    end
+
+    -- 3. ЭТАП: ТОРГОВЛЯ ОТ УРОВНЯ ВЗЯТОГО ТЕЙКА (по 4 попытки в каждую сторону)
+    if hasTakeLevel and takeLevel > 0 then
+        -- Вход в LONG при пробое уровня тейка снизу вверх
+        local crossTakeUp = (prevPrice < takeLevel and currentPrice >= takeLevel)
+        if crossTakeUp and not opn and takeCount_t > 0 then
+            takeCount_t = takeCount_t - 1
+            longLevel   = takeLevel
+            startPrice  = takeLevel
+            opn         = true
+            entryPrice  = currentPrice
+            stop_price  = longLevel - slOffset
+            take_price  = longLevel + tpOffset
+            local att   = count_trades - takeCount_t
+            LogMockEvent("TRADE_OPEN", "Вход в LONG #" .. tostring(att) .. " от уровня тейка " .. tostring(longLevel) .. ". SL: " .. tostring(stop_price) .. ", TP: " .. tostring(take_price))
+        end
+
+        -- Вход в SHORT при пробое уровня тейка сверху вниз
+        local crossTakeDown = (prevPrice > takeLevel and currentPrice <= takeLevel)
+        if crossTakeDown and not virt and takeCount_v > 0 then
+            takeCount_v = takeCount_v - 1
+            shortLevel  = takeLevel
+            virt        = true
+            virtEntryPrice = currentPrice
+            virt_stop   = shortLevel + slOffset
+            virt_take   = shortLevel - tpOffset
+            local att   = count_trades - takeCount_v
+            LogMockEvent("VIRT_OPEN", "Вход в SHORT #" .. tostring(att) .. " от уровня тейка " .. tostring(shortLevel) .. ". SL: " .. tostring(virt_stop) .. ", TP: " .. tostring(virt_take))
+        end
+
+        -- Если обе стороны исчерпали по 4 попытки — уровень тейка забывается
+        if takeCount_t <= 0 and takeCount_v <= 0 then
+            hasTakeLevel = false
         end
     end
 end
